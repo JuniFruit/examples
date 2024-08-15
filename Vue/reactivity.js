@@ -33,8 +33,9 @@ class Observer {
 let activeEffect;
 
 class Effect {
-  constructor(fn) {
+  constructor(fn, scheduler) {
     this.fn = fn;
+    this.scheduler = scheduler;
   }
 
   run() {
@@ -45,8 +46,8 @@ class Effect {
   }
 }
 
-function effect(fn) {
-  const _effect = new Effect(fn);
+function effect(fn, scheduler) {
+  const _effect = new Effect(fn, scheduler);
   _effect.run();
   return _effect;
 }
@@ -63,7 +64,11 @@ function track(target) {
 function trigger(target) {
   const effects = [...target.dep];
   for (const effect of effects) {
-    effect.run();
+    if (effect.scheduler) {
+      effect.scheduler();
+    } else {
+      effect.run();
+    }
   }
 }
 
@@ -107,16 +112,23 @@ class Computed {
   constructor(name, getter) {
     this.dep = new Set();
     this._cached_value = undefined;
-    this.effect = effect(() => {
-      console.log(`run computed effect ${name}`);
-      this._cached_value = getter();
-      console.log(this.dep);
-      trigger(this);
+    this._dirty = true;
+    this._name = name;
+    this.effect = new Effect(getter, () => {
+      if (!this._dirty) {
+        this._dirty = true;
+        trigger(this);
+      }
     });
   }
 
   get value() {
     track(this);
+    if (this._dirty) {
+      this._dirty = false;
+      console.log(`run computed effect ${this._name}`);
+      this._cached_value = this.effect.run();
+    }
     return this._cached_value;
   }
 }
@@ -136,6 +148,21 @@ const sum = computed("sum", () => {
 console.log(sum.value); // 3
 
 number.value = 2;
-// // run computed effect sum
-//
-// console.log(sum.value); // 4
+// run computed effect sum
+
+console.log(sum.value); // 4
+
+const sumDescription = computed("sumDescription", () => {
+  return `sum(${number.value}, ${number2.value}) = ${sum.value}`;
+});
+
+console.log(sumDescription.value);
+// run computed effect sumDescription
+// sum(2, 2) = 4
+
+number.value = 1;
+
+console.log(sumDescription.value);
+// run computed effect sum
+// run computed effect sumDescription
+// sum(1, 2) = 3
